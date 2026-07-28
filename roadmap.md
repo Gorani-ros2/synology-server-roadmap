@@ -1,6 +1,7 @@
 # 🗺️ Synology 100TB 용량 분배 및 팀 공용 저장소 구축 상세 로드맵
 
 **문서 위치**: `file:///home/knu/workspaces/server/roadmap.md`  
+**전체 구축 히스토리 및 시행착오 문서**: [history_and_setup_guide.md](file:///home/knu/workspaces/server/history_and_setup_guide.md)  
 **최종 수정일**: 2026-07-28  
 
 ---
