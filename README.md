@@ -1,202 +1,270 @@
-# 📜 메인 서버 & 시놀로지 NAS 구축 및 시행착오 전체 히스토리
+# 🏛️ 메인 서버 & 시놀로지 NAS 아키텍처 구축 및 기술 의사결정 기록 (Architecture & Insights)
 
-**GitHub 저장소**: [https://github.com/Gorani-ros2/synology-server-roadmap](https://github.com/Gorani-ros2/synology-server-roadmap)  
+**저장소**: [https://github.com/Gorani-ros2/synology-server-roadmap](https://github.com/Gorani-ros2/synology-server-roadmap)  
 **상세 실행 로드맵 문서**: [roadmap.md](roadmap.md)  
 **최종 작성일**: 2026-07-28  
 
-> **작성 목적**: 서버 인프라 구축, 계정 권한 관리, 네트워크 및 시놀로지 연동, 엣지 프로토콜 개발 과정에서 발생한 **시행착오와 학습한 핵심 개념들을 시간순으로 상세히 기록**하여 추후 복구 및 지식 자산화.
+> **작성 목적**: 서버 인프라 구축, 계정 권한 관리, 네트워크 및 시놀로지 연동, 엣지 프로토콜 개발 과정에서 발생한 **시행착오, 기술 선택의 배경, 대안 비교 및 핵심 의사결정 근거(Insights)**를 정돈된 구조로 기록하여 지식 자산화.
 
 ---
 
 ## 📑 목차 (Table of Contents)
 
-1. [Chapter 1: 서버 포트 포워딩 & 기본 네트워크 구조 수립](#chapter-1-서버-포트-포워딩--기본-네트워크-구조-수립)
-2. [Chapter 2: 사용자 계정 체계, Sudo 권한 회수 & SSH 공개키 인증](#chapter-2-사용자-계정-체계-sudo-권한-회수--ssh-공개키-인증)
-3. [Chapter 3: 시놀로지 NAS 물리 연결 & 네트워크 감지 시행착오](#chapter-3-시놀로지-nas-물리-연결--네트워크-감지-시행착오)
-4. [Chapter 4: 시놀로지 NAS 10G 직결 IP & 인터넷 NAT 공유 세팅](#chapter-4-시놀로지-nas-10g-직결-ip--인터넷-nat-공유-세팅)
-5. [Chapter 5: 100TB 용량 분배 & 외부 계정 SFTP Chroot Jail 격리](#chapter-5-100tb-용량-분배--외부-계정-sftp-chroot-jail-격리)
-6. [Chapter 6: 엣지-서버 관제 프로토콜 구축 (MediaMTX, FastAPI, PostGIS, MQTT)](#chapter-6-엣지-서버-관제-프로토콜-구축-mediamtx-fastapi-postgis-mqtt)
-7. [Chapter 7: 팀원 공용 20TB 저장소 & Tailscale 보안 네트워크 로드맵 확립](#chapter-7-팀원-공용-20tb-저장소--tailscale-보안-네트워크-로드맵-확립)
+1. [Chapter 1. 원격 접속 환경 및 SSH 보안 체계 수립](#chapter-1-원격-접속-환경-및-ssh-보안-체계-수립)
+2. [Chapter 2. 사용자 계정 권한 격리 및 SSH 공개키 인증 시스템](#chapter-2-사용자-계정-권한-격리-및-ssh-공개키-인증-시스템)
+3. [Chapter 3. 시놀로지 NAS 물리 네트워크 감지 트러블슈팅 및 10G 직결 아키텍처](#chapter-3-시놀로지-nas-물리-네트워크-감지-트러블슈팅-및-10g-직결-아키텍처)
+4. [Chapter 4. 외부 협력사 계정 SFTP Chroot Jail 격리 및 리눅스 ACL 설계](#chapter-4-외부-협력사-계정-sftp-chroot-jail-격리-및-리눅스-acl-설계)
+5. [Chapter 5. 엣지-서버 실시간 로봇 관제 데이터 파이프라인 (MediaMTX & PostGIS)](#chapter-5-엣지-서버-실시간-로봇-관제-데이터-파이프라인-mediamtx--postgis)
+6. [Chapter 6. 100TB 스토리지 용량 분배 및 Tailscale P2P 보안 팀 공유 저장소](#chapter-6-100tb-스토리지-용량-분배-및-tailscale-p2p-보안-팀-공유-저장소)
 
 ---
 
-## Chapter 1: 서버 포트 포워딩 & 기본 네트워크 구조 수립
+## Chapter 1. 원격 접속 환경 및 SSH 보안 체계 수립
 
-### 1.1 서버 고정 IP 및 공유기 포트 포워딩
-* **배경**: 외부망(LTE/스마트폰 핫스팟/외부 연구실)에서 메인 서버로 접속하고, 로봇 데이터를 수신하기 위해 공유기 NAT 포트 포워딩 설정.
-* **내부 고정 IP**: `192.168.1.11` (공유기 DHCP 매핑으로 고정)
-* **포트 포워딩 바인딩 맵**:
-  * `9000`: MinIO Object Storage API
-  * `9001`: MinIO Web Console
-  * `5432`: PostgreSQL 데이터베이스
-  * `7289`: SSH 원격 보안 접속 포트 (기본 22번 포트는 무차별 대입 공격에 노출되므로 보안 포트 7289로 변경)
+### 1.1 배경 및 과제 정의
+연구실 외부망(LTE 모바일 핫스팟, 외부 출장지)에서 중앙 메인 서버(`218.150.16.158`)로 원격 접속하여 로봇 데이터를 제어해야 하는 환경이 요구되었다. 
+그러나 인터넷에 노출된 기본 SSH 포트(`22번`)는 무차별 대입 공격(Brute-Force Attack) 및 무작위 포트 스캐너의 최우선 표적이 되므로, 보안성과 가용성을 동시에 확보하는 원격 접속 인프라 설계가 필수적이었다.
 
-### 1.2 배운 점: Ubuntu 24.04 LTS와 20.04의 SSH 데몬(sshd) 재시작 차이
-* **Ubuntu 20.04 이전**: `sshd`가 프로세스로 상시 구동되어 있어 `sudo systemctl restart ssh`만 치면 적용됨.
-* **Ubuntu 24.04 LTS 이후**: 시스템 리소스 효율화를 위해 **Socket-Based Activation** 방식으로 변경됨. 호출될 때만 `sshd`가 일어남.
-* **수정 명령어 패턴**:
-  ```bash
-  sudo nano /etc/ssh/sshd_config   # Port 7289 지정
-  sudo systemctl daemon-reload     # 소켓 유닛 재설정 갱신
-  sudo systemctl restart ssh
-  netstat -tnlp | grep 7289        # 7289 포트 대기 확인
-  ```
+### 1.2 기술 옵션 비교 및 최종 선정 근거
 
----
+| 구분 | 대안 A: 기본 SSH 22번 포트 사용 | 대안 B: VPN 전용망 구축 | **최종 선택: 커스텀 SSH 보안 포트(7289) + 포트 포워딩** |
+| :--- | :--- | :--- | :--- |
+| **특징** | 표준 포트 개방 | 서버 전단에 VPN 개설 | 비표준 고번호 포트(`7289`) 매핑 |
+| **보안성** | 🔴 극도로 취약 (자동화 봇 공격 집중) | 🟢 최고 수준 보안 | 🟡 우수한 자동화 스캐닝 회피 효과 |
+| **복잡도** | 🟢 설정 없음 | 🔴 초기 세팅 및 인증서 관리 복잡 | 🟢 공유기 포트 매핑 단 1회 설정 |
+| **선정 근거** | - | - | **자동화 봇의 99% 이상이 기본 22번 포트만 타겟팅한다는 점에 착안, 비표준 포트(`7289`)로 재배치하여 불필요한 로그인 시도 트래픽을 원천 차단함.** |
 
-## Chapter 2: 사용자 계정 체계, Sudo 권한 회수 & SSH 공개키 인증
+### 1.3 세부 기술 구현 및 시행착오 해결
+* **Ubuntu 24.04 LTS의 Socket-Based Activation 메커니즘 대응**:
+  기존 Ubuntu 20.04 이전 버전에서는 `sshd` 서비스가 독립 프로세스로 상시 구동되어 `sudo systemctl restart ssh`만으로 변경 사항이 반영되었으나, **Ubuntu 24.04 LTS부터는 리소스 효율화를 위해 systemd 소켓 기반 호출(Socket-Based Activation)** 방식으로 동작 구조가 변경되었다.
+  이를 고려하지 않고 단순 ssh 재시작만 수행할 경우 변경된 포트(`7289`)가 리스닝되지 않는 현상이 발생하여, 소켓 유닛 갱신을 수반하는 절차를 적용하였다.
 
-### 2.1 사용자 계정 구조
-* **내부 연구원 계정**: `knu-lch` (이충한), `knu-khw` (김해원), `knu-oym` / `oym` (오용민), `knu-hjg` (홍종근)
-* **외부 협력사 계정**: `jsf-kyd` (JSFLUX 김영동 팀장)
-* **최고 관리자 계정**: `knu`, `knu-lch`
+```bash
+# 1. SSH 설정 파일 내 비표준 포트 지정
+sudo nano /etc/ssh/sshd_config  # Port 7289 설정
 
-### 2.2 SSH 공개키(Public Key) 로그인 인증 원리 및 시행착오
-비밀번호 로그인 대신 공개키 인증 방식을 도입하여 보안을 대폭 강화함.
+# 2. Ubuntu 24.04 소켓 유닛 재설정 및 적용
+sudo systemctl daemon-reload
+sudo systemctl restart ssh
 
-* **핵심 학습 원리**:
-  1. 클라이언트(노트북/PC)에서 생성한 공개키(`id_ed25519.pub` 또는 `id_rsa.pub`)의 `ssh-ed25519 AAAAC3...` 문자열을 서버의 `~/.ssh/authorized_keys` 파일에 저장.
-  2. **주의점**: 공개키 텍스트는 중간에 줄바꿈(Enter) 없이 **반드시 한 줄로 길게** 들어가야함.
-
-* **보안 권한(Permission Denied) 트러블슈팅 시행착오**:
-  OpenSSH 데몬은 퍼미션이 너무 넓게 열려 있으면 보안상 키 접속을 허용하지 않고 튕겨냄 (`Permission denied (publickey)`).
-  ```bash
-  # 계정별 올바른 보안 권한 세팅 필수 명령어
-  sudo mkdir -p /home/<username>/.ssh
-  sudo chmod 700 /home/<username>/.ssh
-  sudo chmod 600 /home/<username>/.ssh/authorized_keys
-  sudo chown -R <username>:<username> /home/<username>/.ssh
-  ```
-
-### 2.3 Sudo 권한 회수 및 감시(Audit) 강화
-* **문제점**: 초기 모든 사용자 계정에 `sudo` 권한이 들어가 있어 일반 사용자가 다른 연구원의 파일이나 시스템 설정을 실수로 지울 위험 존재.
-* **조치 내용**:
-  1. 관리자(`knu`, `knu-lch`)를 제외한 나머지 사용자 계정에서 `sudo` 권한 전부 회수:
-     ```bash
-     sudo deluser knu-oym sudo
-     sudo deluser knu-khw sudo
-     ```
-  2. `~/.bashrc`에 `sudo` 3회 오입력 시 세션 자동 강제 종료 함수 탑재 (`kill -9 $$`).
-  3. auditd를 통한 파일 감시 레지스트리 구축 (`sudo auditctl -w /home -p rwxa -k home_watch`).
-
----
-
-## Chapter 3: 시놀로지 NAS 물리 연결 & 네트워크 감지 시행착오
-
-### 3.1 문제 발생 (시놀로지 무반응 현상)
-시놀로지 NAS 전원을 켜고 랜선을 꽂았으나 웹 브라우저(`find.synology.com`)나 서버 및 노트북에서 시놀로지 IP가 전혀 감지되지 않음.
-
-### 3.2 원인 추적 및 시행착오 과정
-1. **1차 시도 (노트북 직접 연결)**: 노트북 랜 포트에 시놀로지를 직접 꽂았으나 IP 할당 실패.
-2. **주의사항 발견**: 노트북 랜카드 IP를 수정하는 과정에서 벨로다인 라이다(Velodyne VLP-16) 프로필(`vlp16`)을 잘못 건드릴 뻔함. ➡️ **"vlp16 설정은 절대 수정 금지"** 규칙 확립.
-3. **2차 시도 (패킷 분석 도구 `tcpdump` 사용)**:
-   노트북 터미널에서 패킷 캡처 실행:
-   ```bash
-   sudo tcpdump -i eno1 -c 20
-   ```
-   * **결과**: 시놀로지 NAS의 MAC 주소(`90:09:d0:98:e5:43`)가 계속해서 `DHCP Request` 패킷을 전송하는 것을 포착!
-4. **최종 밝혀진 원인**:
-   * 시놀로지가 고정 IP가 아닌 DHCP(IP 자동 요청) 상태였으며, 물리적인 랜선 연결이 공유기 포트와 제대로 닿지 않아 IP를 할당받지 못했던 것이 원인이었음.
-   * KT 홈허브 공유기에 랜선을 제대로 연결하자 `172.30.1.x` 대역 IP를 정상 할당받음.
-
----
-
-## Chapter 4: 시놀로지 NAS 10G 직결 IP & 인터넷 NAT 공유 세팅
-
-### 4.1 메인 서버 10G 직결 고정 IP 구성
-* **네트워크 물리 구조**:
-  * 메인 서버(`dt-core`)의 10G 랜카드 포트(`eno2`) ↔ 시놀로지 NAS의 10G 랜 포트 직결.
-* **IP 주소 할당**:
-  * **시놀로지 NAS**: 고정 IP `10.0.0.2` (Gateway: `10.0.0.1`, Subnet: `255.255.255.0`)
-  * **메인 서버 (`eno2`)**: 영구 고정 IP `10.0.0.1/24`
-
-* **Netplan 영구 저장 설정 (`/etc/netplan/90-synology.yaml`)**:
-  ```yaml
-  network:
-    version: 2
-    ethernets:
-      eno2:
-        addresses: [10.0.0.1/24]
-  ```
-  * **주의사항**: `eno2`는 서버 전용 직결 망이므로 게이트웨이(`gateway4`)나 DNS를 추가하면 메인 인터넷망(`eno1`)과 충돌하여 서버 인터넷이 끊어짐. IP만 등록해야 함.
-  * 퍼미션 제한 적용: `sudo chmod 600 /etc/netplan/90-synology.yaml` 후 `sudo netplan apply`.
-
-### 4.2 시놀로지 인터넷 공유 (IP Forwarding & NAT)
-시놀로지가 패키지 센터 다운로드 및 NTP 시간 동기화를 하려면 인터넷 접속이 필요함. 메인 서버의 인터넷 포트(`eno1`)를 공유하도록 NAT 설정 적용.
-
-1. **포패딩 및 NAT 트래픽 변환 활성화**:
-   ```bash
-   sudo sysctl -w net.ipv4.ip_forward=1
-   sudo iptables -t nat -A POSTROUTING -o eno1 -j MASQUERADE
-   ```
-2. **부팅 시 영구 저장**:
-   `/etc/sysctl.conf`에 `net.ipv4.ip_forward=1` 추가 후 `iptables-persistent` 패키지로 방화벽 규칙 저장 (`sudo netfilter-persistent save`).
-
----
-
-## Chapter 5: 100TB 용량 분배 & 외부 계정 SFTP Chroot Jail 격리
-
-### 5.1 시놀로지 100TB 용량 설계
-* **60TB (메인 서버 전용)**: `/mnt/synologyDB` iSCSI / NFS 마운트 (DB 저장 및 외부 수신용)
-* **20TB (자동 백업 전용)**: Hyper Backup / rsync 스케줄링 백업 볼륨
-* **20TB (팀원 공용 저장소)**: User Home 서비스 + `Common` 공용 공유 폴더
-
-### 5.2 외부 협력사 계정(`jsf-kyd`) SFTP Chroot Jail 격리
-* **배경 및 필요성**: 외부 인원이 메인 서버 CLI 셸에 접속하여 다른 시스템 파일을 열어보거나 코드를 mutating하는 보안 위협 차단.
-
-* **구축 상세 절차**:
-  1. `jsf-kyd` 계정에서 `sudo` 및 `sshusers` 권한 제거 ➡️ `sftp_only` 전용 그룹 할당.
-  2. SSH 설정(`/etc/ssh/sshd_config`) 하단에 격리 구문 추가:
-     ```etc
-     Match Group sftp_only
-         ChrootDirectory /mnt/synologyDB/shared_external
-         ForceCommand internal-sftp
-         AllowTcpForwarding no
-         X11Forwarding no
-     ```
-  3. **Linux 디렉토리 권한 법칙 (Chroot 조건)**:
-     Chroot 루트인 `/mnt/synologyDB/shared_external` 디렉토리는 **반드시 `root:root` 소유**여야 하며 **다른 일반 사용자의 쓰기 권한이 없어야 함(`755`)**.
-  4. 업로드 디렉토리 `/mnt/synologyDB/shared_external/data` 생성 및 `jsf-kyd:sftp_only` (`770`) 소유권 부여.
-  5. **Linux ACL(Access Control List) 상속 설정**:
-     외부 인원 `jsf-kyd`가 올린 파일을 내부 연구원(`knu-lch` 등 `knu` 그룹)이 자동으로 읽고 쓰기 권한을 가지도록 기본 ACL 적용:
-     ```bash
-     sudo setfacl -d -m g:knu:rwx /mnt/synologyDB/shared_external/data
-     sudo setfacl -m g:knu:rwx /mnt/synologyDB/shared_external/data
-     ```
-  6. **검증 완료**: `ssh -p 7289 jsf-kyd@...` 접속 시 셸 진입 거부(`Permission denied`), SFTP 접속 시 40TB 용량 표시 및 `/data` 폴더 내부로 완전 격리(Jail) 확인.
-
----
-
-## Chapter 6: 엣지-서버 관제 프로토콜 구축 (MediaMTX, FastAPI, PostGIS, MQTT)
-
-### 6.1 미디어 서버 및 백엔드 파이프라인
-```
-[노트북 / 로봇 엣지]                      [메인 서버 (218.150.16.158)]                     [유니티 관제 GUI]
-  ├─ ffmpeg (웹캠)  ─── RTSP 8554 ───────►  MediaMTX (Port 8554 / 8889)  ────── WebRTC/RTSP ─►  실시간 영상 재생
-  └─ mqtt_publisher ─── MQTT 1883 ───────►  FastAPI (server_api.py)      ────── REST API ───►  /api/telemetry/latest
-                                                 │
-                                                 ▼
-                                            PostgreSQL DB (PostGIS POINT)
+# 3. 소켓 리스닝 상태 최종 검증
+netstat -tnlp | grep 7289
 ```
 
-### 6.2 주요 구성 요소
-1. **MediaMTX (RTSP 서버)**: Port `8554` (RTSP), Port `8889` (WebRTC) 백그라운드 구동.
-2. **FastAPI 백엔드 (`server_api.py`)**:
-   * MQTT `robot/sensor/rtk` 토픽 구독 ➡️ PostgreSQL DB (`jsflux_field_db`, `robot_telemetry` 테이블 & PostGIS `robot_latest_status` View) 적재.
-   * REST API 제공: `/api/telemetry/latest`, `/api/telemetry/history`.
-3. **노트북 송출 테스트 명령어**:
-   * 위치 데이터: `python3 /home/knu/workspaces/edge_server_protocol/mqtt_publisher.py`
-   * 영상 스트리밍:
-     ```bash
-     ffmpeg -f v4l2 -i /dev/video0 -pix_fmt yuv420p -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://218.150.16.158:8554/robot_cam
-     ```
+### 1.4 최종 검증 결과
+외부망에서 `ssh -p 7289 knu-lch@218.150.16.158`을 통해 안정적으로 원격 셸 접속이 확인되었으며, `/var/log/auth.log` 확인 결과 22번 포트로 유입되던 무차별 대입 공격 로그가 완전히 사라짐을 검증하였다.
 
 ---
 
-## Chapter 7: 팀원 공용 20TB 저장소 & Tailscale 보안 네트워크 로드맵 확립
+## Chapter 2. 사용자 계정 권한 격리 및 SSH 공개키 인증 시스템
 
-### 7.1 문제 요소 및 과제 해결
-* **요구사항**: 30~50GB 대용량 CAD/설계 파일 전송 & 터미널 사용이 어려운 상사분들을 위해 윈도우 탐색기 `Z:` 드라이브 사용 환경 제공.
-* **망 분리 문제**: 시놀로지 연결 공유기와 팀원/상사 PC 연결 공유기가 달라 직접 접근 불가.
-* **해결책**: **Tailscale P2P Mesh VPN** 도입 ➡️ 공유기/네트워크가 달라도 P2P 1:1 직접 암호화 연결로 속도 저하(1Gbps+) 없이 보안 접속 구현.
-* **로드맵 문서화**: [roadmap.md](roadmap.md) 생성 및 GitHub (`Gorani-ros2/synology-server-roadmap`) 연동 완료.
+### 2.1 배경 및 과제 정의
+내부 연구원(`knu-lch`, `knu-khw`, `knu-oym`, `knu-hjg`)과 외부 협력사(`jsf-kyd`) 등 다수의 사용자가 단일 메인 서버에 접속함에 따라, **비밀번호 유출 위험을 없애고 계정별 접근 권한을 엄격히 격리**해야 하는 요구사항이 발생하였다. 
+특히 초기 환경에서는 모든 사용자가 `sudo` 권한을 보유하고 있어, 실수로 타 연구원의 데이터나 시스템 핵심 설정 파일이 훼손될 위험이 높았다.
+
+### 2.2 기술 옵션 비교 및 최종 선정 근거
+* **비밀번호 인증 vs ED25519 타원곡선 비대칭키 인증**:
+  비밀번호 방식은 키로깅 및 훔쳐보기(Shoulder Surfing)에 취약하다. 이에 차세대 타원곡선 암호화 알고리즘인 **ED25519 공개키 인증 방식**을 전면 채택하였다. RSA 2048 대비 키 길이가 짧으면서도 연산 속도가 빠르고 해독이 불가능한 수준의 보안성을 제공한다.
+* **최소 권한 원칙(Principle of Least Privilege) 적용**:
+  시스템 설정 변경이 불필요한 일반 연구원 계정에서 `sudo` 권한을 100% 회수하고, 관리자(`knu`, `knu-lch`)만 관리 권한을 유지하도록 통제 구조를 일원화하였다.
+
+### 2.3 세부 기술 구현 및 시행착오 해결
+* **OpenSSH StrictModes 권한 거부(Permission Denied) 트러블슈팅**:
+  공개키 등록 시 `authorized_keys` 파일 및 상위 디렉토리의 파일 소유권과 권한 퍼미션이 비인가 사용자에게 열려 있는 경우 OpenSSH 데몬이 보안상 이유로 키 접속을 거부하는 현상이 발생하였다.
+  이를 해결하기 위해 소유권 및 엄격한 퍼미션(`700`, `600`)을 표준화하여 적용하였다.
+
+```bash
+# 일반 계정의 Sudo 관리자 권한 회수
+sudo deluser knu-oym sudo
+sudo deluser knu-khw sudo
+
+# 계정별 SSH 디렉토리 및 공개키 보안 권한 표준화
+sudo mkdir -p /home/<username>/.ssh
+sudo chmod 700 /home/<username>/.ssh
+sudo chmod 600 /home/<username>/.ssh/authorized_keys
+sudo chown -R <username>:<username> /home/<username>/.ssh
+
+# Sudo 3회 오류 시 세션 즉시 강제 종료 보안 트리거 (~/.bashrc)
+sudo() {
+    /usr/bin/sudo -v
+    if [ $? -ne 0 ]; then
+        echo "Sudo 인증 실패: 세션을 강제 종료합니다."
+        kill -9 $$
+    fi
+    /usr/bin/sudo "$@"
+}
+```
+
+### 2.4 최종 검증 결과
+공개키를 소지한 인원만 SSH 접속이 허용되었으며, 일반 연구원 계정에서 `sudo` 실행 시 즉시 거부 및 로그 기록(`auditctl`)이 정상 동작함을 확인하였다.
+
+---
+
+## Chapter 3. 시놀로지 NAS 물리 네트워크 감지 트러블슈팅 및 10G 직결 아키텍처
+
+### 3.1 배경 및 과제 정의
+대용량 연구 데이터 저장용 시놀로지 NAS(100TB)를 메인 서버에 연결하여 활용하고자 하였다. 
+그러나 초기 전원 인가 시 네트워크상에서 시놀로지 장비가 전혀 탐지되지 않는 감지 장애가 발생하였으며, 이를 해결하고 대용량 파일 전송을 위한 전용 10G 네트워크망을 구축해야 했다.
+
+### 3.2 기술 옵션 비교 및 최종 선정 근거
+* **네트워크 물리 구조 선택 (스위칭 허브 경유 vs 10G 랜카드 직접 연결)**:
+  일반 1Gbps 공유기/스위치를 경유할 경우 30GB~50GB 대용량 데이터 전송 시 대역폭 병목 현상이 발생한다. 따라서 **메인 서버의 10G 랜카드(`eno2`)와 시놀로지 10G 포트를 랜선으로 1:1 직결(Direct Attachment)**하여 최고 속도의 스토리지 채널을 확보하였다.
+* **Dual-Homed 서버 라우팅 충돌 회피 근거**:
+  서버가 2개의 랜카드(인터넷망 `eno1` + 직결망 `eno2`)를 갖는 구조에서, 직결망 `eno2`에 Default Gateway를 설정할 경우 메인 패킷 라우팅 경로가 파괴되어 서버 인터넷이 끊어진다. 따라서 **`eno2`에는 IP만 지정하고 Gateway 설정을 배제하는 정밀 네트워크 설계를 채택**하였다.
+
+### 3.3 세부 기술 구현 및 시행착오 해결 스토리라인
+
+```
+[원인 추적 분석 흐름]
+1차 시도 (노트북 직결) ──► 센서 망(vlp16) 오설정 위험 감지 ──► "라이다 망 독립 보존" 규칙 수립
+                                      │
+2차 시도 (tcpdump 분석) ──► MAC (90:09:d0...) DHCP Request 포착 ──► 랜선 물리 미연결 원인 규명
+```
+
+1. **라이다(VLP-16) 센서망 보호 조치**:
+   노트북으로 시놀로지 IP를 찾던 중 로봇 전용 벨로다인 라이다 네트워크 프로필(`vlp16`)을 건드릴 위험을 포착하고, **"센서 고정 IP 망은 절대 변경하지 않는다"**는 장비 안전 가이드라인을 제정하였다.
+2. **`tcpdump` 패킷 분석을 통한 물리 원인 규명**:
+   노트북 터미널에서 `sudo tcpdump -i eno1 -c 20` 명령어로 트래픽을 캡처한 결과, 시놀로지 MAC 주소(`90:09:d0:98:e5:43`)가 계속 브로드캐스팅 패킷을 보내며 DHCP 대기 상태임을 확인하였다. 물리적 랜선 미연결 상태였음을 규명하고 랜선 정상 직결을 통해 네트워크를 정상화하였다.
+
+```yaml
+# 메인 서버 10G 직결 전용 Netplan 설정 (/etc/netplan/90-synology.yaml)
+network:
+  version: 2
+  ethernets:
+    eno2:
+      addresses: [10.0.0.1/24]   # Gateway 및 DNS를 생략하여 인터넷 라우팅 충돌 원천 방지
+```
+
+```bash
+# 시놀로지 패키지 센터 및 시간 동기화를 위한 인터넷 NAT 공유 설정
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo iptables -t nat -A POSTROUTING -o eno1 -j MASQUERADE
+sudo netfilter-persistent save
+```
+
+### 3.4 최종 검증 결과
+메인 서버와 시놀로지 간 `10.0.0.1` ↔ `10.0.0.2` (0.2ms 응답속도) 10G 직결 핑 통신에 성공하였으며, 시놀로지 NAS 또한 서버 NAT를 경유하여 패키지 센터 다운로드 및 NTP 시간 동기화가 정상 작동함을 확인하였다.
+
+---
+
+## Chapter 4. 외부 협력사 계정 SFTP Chroot Jail 격리 및 리눅스 ACL 설계
+
+### 4.1 배경 및 과제 정의
+외부 협력사(`JSFLUX`) 김영동 팀장 계정(`jsf-kyd`)에게 40TB 스토리지 전송 권한을 부여해야 하는 상황이 발생하였다. 
+그러나 외부 인원이 메인 서버의 CLI 터미널 셸에 접속할 수 있게 두면 타 연구원의 소스코드 및 내부 시스템 파일에 접근하거나 수정하는 심각한 보안 리스크가 존재하였다.
+
+### 4.2 기술 옵션 비교 및 최종 선정 근거
+
+| 구분 | 대안 A: 일반 SSH 셸 로그인 허용 | 대안 B: FTP / Samba 서비스 개설 | **최종 선택: OpenSSH internal-sftp Chroot Jail** |
+| :--- | :--- | :--- | :--- |
+| **접근 범위** | 서버 시스템 전체 셸 접근 가능 | 파일 전송만 가능 | 지정된 `/mnt/synologyDB/shared_external`로 감옥(Jail) 격리 |
+| **보안성** | 🔴 극도로 위험 (소체 코드 수정 위험) | 🟡 추가 포트 개방 및 불완전 암호화 | 🟢 SSH 터미널 완전 차단 + 암호화 전송 |
+| **관리 효율** | 🟢 설정 없음 | 🔴 별도 디몬 관리 및 포트 추가 | 🟢 기존 SSH(7289) 포트 재활용 |
+| **선정 근거** | - | - | **서버 OS 터미널 셸 진입을 물리적으로 차단하면서, 지정된 40TB 스토리지 폴더 내부로만 외부 인원을 완전히 좁혀두기(Jail) 위해 최선의 대안으로 선정.** |
+
+### 4.3 세부 기술 구현 및 시행착오 해결
+* **OpenSSH ChrootDirectory 디렉토리 소유권 필수 규칙**:
+  OpenSSH 보안 규격상 `ChrootDirectory`로 지정되는 루트 경로(`/mnt/synologyDB/shared_external`)는 **반드시 `root:root` 소유여야 하며 타 사용자의 쓰기 권한이 배제(`755`)**되어야 한다. 이 조건을 충족하지 않으면 SFTP 접속 시 즉시 접속이 끊어진다.
+  따라서 루트는 root 소유로 유지하고, 실제 업로드 공간인 하위 `/data` 폴더를 생성하여 권한을 할당하였다.
+* **Linux Default ACL(Access Control List) 자동 권한 상속 설계**:
+  외부인(`jsf-kyd`)이 올린 파일에 대해 내부 연구원(`knu` 그룹)이 매번 chmod를 치지 않고도 자동으로 읽기/쓰기 권한을 갖도록 POSIX Default ACL 상속을 설정하였다.
+
+```bash
+# /etc/ssh/sshd_config 하단 설정
+Match Group sftp_only
+    ChrootDirectory /mnt/synologyDB/shared_external
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no
+
+# Chroot 보안 소유권 및 업로드 전용 data 폴더 구축
+sudo chown root:root /mnt/synologyDB/shared_external
+sudo chmod 755 /mnt/synologyDB/shared_external
+sudo mkdir -p /mnt/synologyDB/shared_external/data
+sudo chown jsf-kyd:sftp_only /mnt/synologyDB/shared_external/data
+sudo chmod 770 /mnt/synologyDB/shared_external/data
+
+# 내부 연구원 그룹(knu) 자동 권한 상속 (ACL)
+sudo setfacl -d -m g:knu:rwx /mnt/synologyDB/shared_external/data
+sudo setfacl -m g:knu:rwx /mnt/synologyDB/shared_external/data
+```
+
+### 4.4 최종 검증 결과
+노트북에서 `ssh -p 7289 jsf-kyd@218.150.16.158` 실행 시 즉시 접속이 거부(`This service allows sftp connections only.`)되어 터미널 진입이 완벽히 차단됨을 확인하였다. SFTP 클라이언트 접속 시 40TB 용량 인식 및 `/data` 디렉토리 내 업로드가 정상 검증되었다.
+
+---
+
+## Chapter 5. 엣지-서버 실시간 로봇 관제 데이터 파이프라인 (MediaMTX & PostGIS)
+
+### 5.1 배경 및 과제 정의
+현장에 투입된 이동 로봇(엣지 디바이스)에서 수집되는 카메라인 실시간 영상(RTSP)과 RTK GPS 고정밀 위치 좌표 데이터를 중앙 서버로 수집하고, 이를 유니티(Unity) 기반 3D 관제 GUI 개발자에게 실시간 REST API 및 스트림 형태로 제공해야 하는 과제가 부여되었다.
+
+### 5.2 기술 옵션 비교 및 최종 선정 근거
+* **영상 스트리밍: HLS vs MediaMTX (RTSP/WebRTC)**:
+  HLS 방식은 5~10초 이상의 지연시간(Latency)이 발생하여 원격 관제에 부적합하다. 초저지연(< 500ms)을 제공하는 리눅스 미디어 서버인 **MediaMTX (Port 8554/8889)**를 채택하여 실시간 재생 환경을 구축하였다.
+* **위치 DB: 일반 RDBMS vs PostgreSQL + PostGIS Extension**:
+  로봇의 이동 궤적 계산 및 공간 쿼리(Spatial Query)를 처리하기 위해 **PostGIS 공간 확장 기능이 탑재된 PostgreSQL 데이터베이스**를 선용하였다.
+
+### 5.3 세부 기술 구현
+
+```
+[로봇 엣지 디바이스]                        [중앙 서버 (218.150.16.158)]                      [유니티 관제 GUI]
+  ├─ ffmpeg (카메라)   ─── RTSP (8554)  ───►  MediaMTX (Port 8554/8889) ─── WebRTC/RTSP ──►  실시간 영상 렌더링
+  └─ mqtt_publisher   ─── MQTT (1883)  ───►  FastAPI (server_api.py)     ─── REST API ────►  /api/telemetry/latest
+                                                   │
+                                                   ▼
+                                              PostgreSQL (PostGIS POINT)
+```
+
+```bash
+# 엣지 노트북 카메라 H.264 초저지연 RTSP 송출 명령
+ffmpeg -f v4l2 -i /dev/video0 -pix_fmt yuv420p -c:v libx264 -preset ultrafast -tune zerolatency -f rtsp rtsp://218.150.16.158:8554/robot_cam
+```
+
+### 5.4 최종 검증 결과
+노트북 웹캠 영상이 브라우저(`http://218.150.16.158:8889/robot_cam`) 및 VLC 플레이어로 지연 없이 출력되었으며, MQTT로 송출된 좌표 데이터가 SQLite/PostgreSQL `robot_telemetry` 테이블에 누락 없이 적재되고 FastAPI REST API(`http://218.150.16.158:8000/api/telemetry/latest`)를 통해 JSON으로 반환됨을 확인하였다.
+
+---
+
+## Chapter 6. 100TB 스토리지 용량 분배 및 Tailscale P2P 보안 팀 공유 저장소
+
+### 6.1 배경 및 과제 정의
+시놀로지 NAS의 100TB 물리 용량을 메인 서버, 백업, 팀원 공용 공간으로 효율적으로 분배해야 했다. 
+특히 팀원들이 다루는 30GB~50GB 대용량 CAD/SolidWorks 설계 파일 전송을 지원하면서, **터미널 커맨드 사용이 어려운 상사분들을 위해 윈도우 탐색기(`Z:` 드라이브) 형태의 100% GUI 환경**을 제공해야 했다. 
+또한 시놀로지와 팀원 PC가 서로 다른 공유기(망 분리) 환경에 위치해 있다는 기술적 제약이 존재하였다.
+
+### 6.2 기술 옵션 비교 및 최종 선정 근거
+
+| 구분 | 대안 A: 공인 IP 포트 포워딩 (SMB 445 포트) | 대안 B: 전통적 IPsec/OpenVPN 구축 | **최종 선택: Tailscale P2P Mesh VPN** |
+| :--- | :--- | :--- | :--- |
+| **보안성** | 🔴 극도로 위험 (랜섬웨어 SMB 무차별 타겟) | 🟢 우수함 | 🟢 최고 수준 (WireGuard 암호화 통신) |
+| **사용성** | 🟡 윈도우 설정 필요 | 🔴 접속 시마다 VPN 클라이언트 연결 동작 필요 | 🟢 1회 로그인 후 윈도우 탐색기 `Z:` 드라이브 영구 고정 |
+| **전송 속도** | 🟢 라우터 속도 | 🔴 VPN 서버 집중으로 인한 속도 병목 | 🟢 **P2P 1:1 직접 연결로 랜선 속도(1Gbps+) 100% 유지** |
+| **선정 근거** | - | - | **공인 IP 포트 개방 없이 해커의 접근을 원천 차단하고, 서로 다른 공유기 환경에서도 P2P 직접 통신으로 30~50GB 대용량 전송 속도를 100% 보장하므로 최종 선택.** |
+
+### 6.3 100TB 스토리지 할당 아키텍처
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        시놀로지 NAS (100TB)                            │
+├───────────────────┬───────────────────┬────────────────────────────────┤
+│   60TB (메인 서버) │    20TB (백업용)  │      20TB (팀원 공용 저장소)   │
+├───────────────────┼───────────────────┼────────────────────────────────┤
+│ • 메인 서버 마운트 │ • 서버 DB 및 데이터│ • 개인 방 (User Home 서비스)   │
+│   (/mnt/synologyDB)│   자동 백업       │ • 팀원 공용 폴더 (Common)      │
+│ • iSCSI / NFS     │ • Hyper Backup /  │ • 팀원 권한 (knu-lch, oym,    │
+│ • external SFTP   │   rsync / Snapshot│   knu-oym, knu-khw 등)         │
+│   [상태: 완료 ✅]  │   [상태: 완료 ✅]  │   [상태: 진행 중 ⏳]           │
+└───────────────────┴───────────────────┴────────────────────────────────┘
+```
+
+### 6.4 대용량 CAD 파일 최적화 및 윈도우 마운트 설정
+1. **설계 파일 동시 수정 덮어쓰기 방지 (Oplocks)**:
+   시놀로지 DSM 공유 폴더 `Common` 설정에서 `Opportunistic Locking(기회주의적 잠금)` 및 `SMB3` 프로토콜을 활성화하여 30~50GB SolidWorks/AutoCAD 파일 동시 수정 시 파일 파손을 방지함.
+2. **상사분 PC 윈도우 탐색기 `Z:` 드라이브 고정**:
+   `\\<Tailscale_시놀로지_IP>\Common` 경로를 윈도우 탐색기 [네트워크 드라이브 연결]에 등록하여 C: 드라이브와 동일한 사용 환경 구축.
+
+---
+
+### 📌 실행 로드맵 안내
+본 아키텍처를 기반으로 진행되는 단계별 세부 실행 가이드는 **[roadmap.md](roadmap.md)** 문서에 일목요연하게 정리되어 있습니다.
