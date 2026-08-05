@@ -264,5 +264,30 @@ ffmpeg -f v4l2 -i /dev/video0 -pix_fmt yuv420p -c:v libx264 -preset ultrafast -t
 
 ---
 
+## Chapter 7. 2026-08-05 실전 엣지-서버 데이터 파이프라인 검증 및 시놀로지 6디스크(55TB) 스토리지 할당 산출
+
+### 7.1 배경 및 과제 정의
+노트북(엣지 디바이스) ➡️ 메인 서버(`218.150.16.158`) 간 실시간 MQTT 위치 데이터 및 MediaMTX RTSP 영상 파이프라인의 실전 적재/출력 검증을 진행하였으며, 물리 하드디스크 6개(16TB × 6)가 장착된 시놀로지 NAS의 실효 용량(55TB) 산출 및 팀원 공용 저장소 배분안을 최종확정하였다.
+
+### 7.2 엣지-서버 파이프라인 검증 및 PostgreSQL DB 스키마 분석
+1. **`server_api.py` 수집기 및 PostgreSQL 적재 보완**:
+   * `robot_telemetry` 테이블의 `captured_at` 컬럼명 매핑 및 타임스탬프 변환 로직 수정.
+   * `python3-psycopg2` 모듈 설치 완료 후, 노트북에서 송신한 `ROBOT_FIELD_TEST` / `ROBOT_LIVE_TEST_01` 텔레메트리 10건이 PostgreSQL `jsflux_field_db` 내 `robot_telemetry` 테이블 및 PostGIS `position` 지오메트리(Point 4326)로 누락 없이 완벽 적재됨을 검증.
+2. **MediaMTX RTSP 영상 송출 및 시각 검증**:
+   * 노트북 웹캠(`/dev/video0`) ➡️ `rtsp://218.150.16.158:8554/robot_cam` H.264 송출 성공.
+   * 수신 단에서 `ffplay -fflags nobuffer -flags low_delay rtsp://218.150.16.158:8554/robot_cam` 커맨드로 0.2초대 초저지연 시각 검증 완료.
+
+### 7.3 시놀로지 6디스크(55TB) 스토리지 구조 및 0원 할당안
+* **물리 하드디스크 산출 (16TB × 6개 = 87.3 TiB Raw)**:
+  * SHR-2 / RAID 6 이중 패리티 적용 (하드 2개 분량 약 29.1 TiB 차감).
+  * Btrfs 메타데이터 및 OS 파티션 제외 시 **`볼륨 1` 실사용 가능 용량 = 55 TiB**.
+* **현재 55TB 배분안 확정**:
+  * 🖥️ **개발 서버 전용 (`/mnt/synologyDB`)**: **40 TB**
+  * 📁 **팀원 공용 저장소 (`Common`)**: **15 TB** (Quota 지정)
+* **추후 16TB 2개 추가(총 8개) 시**:
+  * 온라인 무중단 확장([Add Drive])으로 +30TB 확보하여 총 **85 TB** (개발 60TB + 팀원 20TB + 여유 5TB) 100% 달성 가능.
+
+---
+
 ### 📌 실행 로드맵 안내
 본 아키텍처를 기반으로 진행되는 단계별 세부 실행 가이드는 **[roadmap.md](roadmap.md)** 문서에 일목요연하게 정리되어 있습니다.
