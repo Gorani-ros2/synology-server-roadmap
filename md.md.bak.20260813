@@ -84,31 +84,13 @@
 
 ---
 
-## 📅 2026-08-13 작업 내역 및 현황 보고
-
-### ✅ 오늘 진행 및 완료된 작업
-1. **시놀로지 10TB 팀 전용 스토리지 구성 확립**:
-   - 팀 공용 공유 폴더 `00_Asia_hub` (5TB Quota) 생성 및 권한 설정 완료.
-   - 팀원 10명 개인 독립 방(`home`) 1인당 500GB Quota ([제어판 ➡️ 사용자 및 그룹 ➡️ 고급 탭 ➡️ 사용자 홈]) 일괄 적용 완료.
-2. **Tailscale P2P Mesh VPN 구축 및 고유 IP 검증**:
-   - 시놀로지 패키지 센터에서 Tailscale 설치 및 로그인 연동 완료.
-   - 시놀로지 NAS 전용 고유 가상 IP **`100.118.194.54`** 생성 확인 및 윈도우 PC P2P 통신 검증 완료.
-3. **윈도우 탐색기 네트워크 드라이브 고정 검증**:
-   - **`Z: 드라이브`**: `\\100.118.194.54\00_Asia_hub` (5TB 팀 공용) 정상 마운트.
-   - **`Y: 드라이브`**: `\\100.118.194.54\home` (500GB 개인 방) 정상 마운트.
-   - 윈도우 자격 증명 기억 및 `#recycle` 보안 차단 동작 검증 완료.
-4. **팀원용 1분 사용 가이드 작성 및 문서화**:
-   - [team_user_guide.md](team_user_guide.md) 독립 문서 생성 완료.
-   - [roadmap.md](roadmap.md), [history_and_setup_guide.md](history_and_setup_guide.md), [README.md](README.md) 전면 갱신 완료.
-
----
-
 ### 🚀 내일 이어서 진행할 작업 (Next Steps)
-1. **[Phase 1] 1-3번: 30~50GB 대용량 CAD/설계 파일 전송 최적화**:
-   - `00_Asia_hub` 폴더 [편집] ➡️ [고급] ➡️ `Opportunistic Locking(기회주의적 잠금)` 활성화.
+1. **[Phase 1] 1-2번: 팀 공용 공유 폴더 (`Common`) 생성**:
+   - DSM 제어판 ➡️ [공유 폴더] ➡️ 생성 (`Common`, 볼륨 1) ➡️ 팀원 계정들(`knu-lch`, `oym`, `knu-oym`, `knu-khw` 등) `읽기/쓰기` 권한 부여.
+2. **[Phase 1] 1-3번: 30~50GB CAD/설계 파일 최적화**:
+   - `Common` 폴더 [편집] ➡️ [고급] ➡️ `Opportunistic Locking(기회주의적 잠금)` 활성화.
    - [파일 서비스] ➡️ [SMB] ➡️ [고급 설정] ➡️ `SMB3` 프로토콜 지정.
-2. **[Phase 3] 팀원 10명 PC Tailscale 및 네트워크 드라이브 일괄 세팅 지원**:
-   - 팀원 PC에 윈도우용 Tailscale 설치 후 공용 구글 계정 1회 연동 및 Z:/Y: 드라이브 등록.
-3. **[Phase 4] Hyper Backup 자동 백업 연동**:
-   - DSM `Hyper Backup` 앱으로 `00_Asia_hub` 매일 새벽 3시 스케줄 백업 세팅.
-
+3. **[Phase 2] Tailscale P2P VPN 네트워크 구축**:
+   - 시놀로지 패키지 센터에서 `Tailscale` 설치 및 팀원/상사 PC 앱 설치 ➡️ 서로 다른 공유기망에서도 속도 저하 없는 30~50GB 전송 환경 완성.
+4. **[Phase 3] 상사분 PC 윈도우 탐색기 `Z:` 드라이브 연결**:
+   - `\\<Tailscale_시놀로지_IP>\Common` 윈도우 네트워크 드라이브 1회 마운트 (커맨드 사용 0%).

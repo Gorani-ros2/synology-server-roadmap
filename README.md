@@ -260,11 +260,14 @@ ffmpeg -f v4l2 -i /dev/video0 -pix_fmt yuv420p -c:v libx264 -preset ultrafast -t
 
 ### 6.4 대용량 CAD 파일 최적화 및 윈도우 마운트 설정
 1. **설계 파일 동시 수정 덮어쓰기 방지 (Oplocks)**:
-   시놀로지 DSM 공유 폴더 `Common` 설정에서 `Opportunistic Locking(기회주의적 잠금)` 및 `SMB3` 프로토콜을 활성화하여 30~50GB SolidWorks/AutoCAD 파일 동시 수정 시 파일 파손을 방지함.
-2. **상사분 PC 윈도우 탐색기 `Z:` 드라이브 고정**:
-   `\\<Tailscale_시놀로지_IP>\Common` 경로를 윈도우 탐색기 [네트워크 드라이브 연결]에 등록하여 C: 드라이브와 동일한 사용 환경 구축.
+   시놀로지 DSM 공유 폴더 `00_Asia_hub` 설정에서 `Opportunistic Locking(기회주의적 잠금)` 및 `SMB3` 프로토콜을 활성화하여 30~50GB SolidWorks/AutoCAD 파일 동시 수정 시 파일 파손을 방지함.
+2. **윈도우 탐색기 `Z:` 및 `Y:` 드라이브 고정**:
+   `\\100.118.194.54\00_Asia_hub` (Z: 공용 5TB) 및 `\\100.118.194.54\home` (Y: 개인 500GB) 경로를 윈도우 탐색기 [네트워크 드라이브 연결]에 등록하여 내 컴퓨터 폴더와 동일한 사용 환경 구축.
 
 ---
 
-### 📌 실행 로드맵 안내
-본 아키텍처를 기반으로 진행되는 단계별 세부 실행 가이드는 **[roadmap.md](roadmap.md)** 문서에 일목요연하게 정리되어 있습니다.
+### 📌 실행 로드맵 및 가이드 문서 안내
+* **상세 실행 로드맵**: [roadmap.md](roadmap.md)
+* **전체 구축 히스토리 및 기술 기록**: [history_and_setup_guide.md](history_and_setup_guide.md)
+* **팀원용 1분 네트워크 드라이브 사용 설명서**: [team_user_guide.md](team_user_guide.md)
+
