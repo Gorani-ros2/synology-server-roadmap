@@ -147,50 +147,40 @@ sudo netfilter-persistent save
 
 ---
 
-## Chapter 4. 외부 협력사 계정 SFTP Chroot Jail 격리 및 리눅스 ACL 설계
+## Chapter 4. 외부 협력사 계정 권한 정책 및 DB 접근 허용 (Chroot Jail ➔ 일반 SSH 전환)
 
-### 4.1 배경 및 과제 정의
-외부 협력사(`JSFLUX`) 김영동 팀장 계정(`jsf-kyd`)에게 40TB 스토리지 전송 권한을 부여해야 하는 상황이 발생하였다. 
-그러나 외부 인원이 메인 서버의 CLI 터미널 셸에 접속할 수 있게 두면 타 연구원의 소스코드 및 내부 시스템 파일에 접근하거나 수정하는 심각한 보안 리스크가 존재하였다.
+### 4.1 배경 및 정책 변경 사유
+외부 협력사(`JSFLUX`) 김영동 팀장 계정(`jsf-kyd`)에 대해 초기에는 시스템 셸 터미널 접근을 차단하기 위해 OpenSSH `internal-sftp` Chroot Jail 디렉토리(`/mnt/synologyDB/shared_external`) 격리를 적용하였다.
+그러나 JSFLUX 측에서 **PostgreSQL 텔레메트리 DB(`jsflux_field_db`) 직접 조회, `psql` CLI 명령 및 포트 터널링 검증**이 필수 요구됨에 따라, SFTP 전용 감옥 격리를 해제하고 **일반 SSH 터미널 로그인 권한을 허용하는 원래 접근 방식으로 복구/업데이트**하였다.
 
-### 4.2 기술 옵션 비교 및 최종 선정 근거
+### 4.2 계정 권한 및 접근 정책 비교
 
-| 구분 | 대안 A: 일반 SSH 셸 로그인 허용 | 대안 B: FTP / Samba 서비스 개설 | **최종 선택: OpenSSH internal-sftp Chroot Jail** |
-| :--- | :--- | :--- | :--- |
-| **접근 범위** | 서버 시스템 전체 셸 접근 가능 | 파일 전송만 가능 | 지정된 `/mnt/synologyDB/shared_external`로 감옥(Jail) 격리 |
-| **보안성** | 🔴 극도로 위험 (소체 코드 수정 위험) | 🟡 추가 포트 개방 및 불완전 암호화 | 🟢 SSH 터미널 완전 차단 + 암호화 전송 |
-| **관리 효율** | 🟢 설정 없음 | 🔴 별도 디몬 관리 및 포트 추가 | 🟢 기존 SSH(7289) 포트 재활용 |
-| **선정 근거** | - | - | **서버 OS 터미널 셸 진입을 물리적으로 차단하면서, 지정된 40TB 스토리지 폴더 내부로만 외부 인원을 완전히 좁혀두기(Jail) 위해 최선의 대안으로 선정.** |
+| 구분 | 초기 구축: OpenSSH internal-sftp Chroot Jail | **최종 업데이트: 일반 SSH 셸 로그인 허용 (현행)** |
+| :--- | :--- | :--- |
+| **접근 범위** | `/mnt/synologyDB/shared_external` 내부 SFTP 전용 | **서버 CLI 터미널 접속 & PostgreSQL DB 접근 가능** |
+| **터미널 접속** | 🔴 차단 (`This service allows sftp connections only.`) | 🟢 **허용 (`ssh -p 7289 jsf-kyd@218.150.16.158`)** |
+| **DB 접근성** | 🔴 DB 포트 터널링 및 CLI 쿼리 불가 | 🟢 **`jsflux_field_db` 직접 조회 및 psql CLI 사용 가능** |
+| **보안 정책** | Chroot Jail 격리 | Non-Sudo 일반 사용자 권한 + ED25519 공개키 인증 |
 
-### 4.3 세부 기술 구현 및 시행착오 해결
-* **OpenSSH ChrootDirectory 디렉토리 소유권 필수 규칙**:
-  OpenSSH 보안 규격상 `ChrootDirectory`로 지정되는 루트 경로(`/mnt/synologyDB/shared_external`)는 **반드시 `root:root` 소유여야 하며 타 사용자의 쓰기 권한이 배제(`755`)**되어야 한다. 이 조건을 충족하지 않으면 SFTP 접속 시 즉시 접속이 끊어진다.
-  따라서 루트는 root 소유로 유지하고, 실제 업로드 공간인 하위 `/data` 폴더를 생성하여 권한을 할당하였다.
-* **Linux Default ACL(Access Control List) 자동 권한 상속 설계**:
-  외부인(`jsf-kyd`)이 올린 파일에 대해 내부 연구원(`knu` 그룹)이 매번 chmod를 치지 않고도 자동으로 읽기/쓰기 권한을 갖도록 POSIX Default ACL 상속을 설정하였다.
+### 4.3 세부 기술 설정 및 권한 구성
 
 ```bash
-# /etc/ssh/sshd_config 하단 설정
-Match Group sftp_only
-    ChrootDirectory /mnt/synologyDB/shared_external
-    ForceCommand internal-sftp
-    AllowTcpForwarding no
-    X11Forwarding no
+# 1. /etc/ssh/sshd_config 내 jsf-kyd 계정 Chroot 레시피 제거 (기본 SSH 셸 복구)
+# Match Group sftp_only -> 주석 처리 또는 해제
+sudo usermod -g jsf-kyd jsf-kyd
+sudo systemctl restart ssh
 
-# Chroot 보안 소유권 및 업로드 전용 data 폴더 구축
-sudo chown root:root /mnt/synologyDB/shared_external
-sudo chmod 755 /mnt/synologyDB/shared_external
+# 2. 공유 스토리지 접근 및 POSIX ACL 자동 권한 상속 유지
 sudo mkdir -p /mnt/synologyDB/shared_external/data
-sudo chown jsf-kyd:sftp_only /mnt/synologyDB/shared_external/data
-sudo chmod 770 /mnt/synologyDB/shared_external/data
-
-# 내부 연구원 그룹(knu) 자동 권한 상속 (ACL)
 sudo setfacl -d -m g:knu:rwx /mnt/synologyDB/shared_external/data
 sudo setfacl -m g:knu:rwx /mnt/synologyDB/shared_external/data
+
+# 3. PostgreSQL DB 사용자 권한 확인 (jsflux_field_db)
+# DB 사용자: jsflux_field_user (PostGIS 공간 쿼리 및 테이블 조회 허용)
 ```
 
 ### 4.4 최종 검증 결과
-노트북에서 `ssh -p 7289 jsf-kyd@218.150.16.158` 실행 시 즉시 접속이 거부(`This service allows sftp connections only.`)되어 터미널 진입이 완벽히 차단됨을 확인하였다. SFTP 클라이언트 접속 시 40TB 용량 인식 및 `/data` 디렉토리 내 업로드가 정상 검증되었다.
+노트북에서 `ssh -p 7289 jsf-kyd@218.150.16.158` 접속 시 정상적으로 셸 터미널에 로그인되며, `psql -h localhost -U jsflux_field_user -d jsflux_field_db` 명령을 통해 `robot_telemetry` 테이블 및 PostGIS 쿼리가 정상 작동함을 최종 검증하였다.
 
 ---
 
