@@ -309,6 +309,52 @@ ffmpeg -f v4l2 -i /dev/video0 -pix_fmt yuv420p -c:v libx264 -preset ultrafast -t
 
 ---
 
+## Chapter 9. 2026-09-22 신규 연구원(`knu-chy`) 계정 온보딩 — 메인 서버 SSH 및 시놀로지 NAS 권한 발급
+
+### 9.1 배경 및 과제 정의
+랩에 신규 연구원이 합류함에 따라, 기존 `knu-khw`/`knu-oym`/`knu-hjg`와 동일한 **비관리자(non-sudo) 일반 연구원** 등급으로 계정을 발급해야 하는 과제가 발생하였다. 대상 계정은 메인 서버(`218.150.16.158`)와 시놀로지 NAS(`100.118.194.54`)라는 서로 독립된 두 시스템에 걸쳐 있으므로, Chapter 2(SSH 공개키 인증·최소 권한 원칙)와 Chapter 8(사용자 홈 500GB Quota·Tailscale) 두 체계에 각각 동일한 아이디로 온보딩하여 접근 범위를 일치시키는 방향으로 진행하였다.
+
+### 9.2 메인 서버(Ubuntu) — SSH 계정 생성 및 최소 권한 적용
+Chapter 2에서 확립한 방식(ED25519 공개키 인증 + `sudo` 미부여)을 그대로 적용한다. 신규 계정 생성 시점부터 `sudo` 그룹에 넣지 않으므로 별도의 권한 회수 절차가 필요 없다.
+
+```bash
+# 1. 신규 연구원 계정 생성 (sudo 그룹 미포함, 비밀번호 로그인 비활성화)
+sudo adduser --disabled-password --gecos "" knu-chy
+
+# 2. 내부 연구원 공용 그룹(knu) 편입 — /mnt/synologyDB 등 기존 ACL 상속 대상에 포함
+sudo usermod -aG knu knu-chy
+
+# 3. SSH 디렉토리 및 공개키 등록 (본인 로컬 PC에서 생성한 ED25519 공개키 사용)
+sudo mkdir -p /home/knu-chy/.ssh
+sudo nano /home/knu-chy/.ssh/authorized_keys   # id_ed25519.pub 내용 붙여넣기 후 저장
+sudo chmod 700 /home/knu-chy/.ssh
+sudo chmod 600 /home/knu-chy/.ssh/authorized_keys
+sudo chown -R knu-chy:knu-chy /home/knu-chy/.ssh
+
+# 4. sudo 미보유 상태 확인 (sudo 그룹에 나타나지 않아야 정상)
+groups knu-chy
+```
+
+### 9.3 시놀로지 NAS(DSM) — 개인 방 및 팀 공용 폴더 권한 부여
+Chapter 8에서 구축한 사용자 홈 500GB Quota 체계에 동일 아이디로 편입시킨다.
+
+1. DSM **[제어판] ➡️ [사용자 및 그룹] ➡️ [생성]** ➡️ 아이디 `knu-chy`로 계정 생성 (비밀번호는 본인이 최초 로그인 시 변경하도록 임시 비밀번호 발급).
+2. 사용자 홈 서비스가 이미 활성화되어 있으므로 저장 즉시 개인 방(`/home`, 500GB Quota)이 자동 생성됨을 확인.
+3. **[제어판] ➡️ [공유 폴더] ➡️ `00_Asia_hub` ➡️ [권한]** 탭에서 `knu-chy` 계정에 읽기/쓰기 권한 체크.
+
+### 9.4 직접 검증 (1-Click Verification)
+사용자가 본인 계정으로 직접 접속해 눈으로 확인한다.
+
+```bash
+# 메인 서버 SSH 접속 검증 — 공개키로 즉시 접속되고, sudo는 거부되어야 정상
+ssh -p 7289 knu-chy@218.150.16.158
+sudo -v   # "knu-chy is not in the sudoers file" 메시지가 떠야 정상
+```
+
+NAS 쪽은 [team_user_guide.md](team_user_guide.md) 절차대로 본인 PC에 Tailscale 설치 후, 윈도우 탐색기에서 `Z:`(`\\100.118.194.54\00_Asia_hub`)·`Y:`(`\\100.118.194.54\home`) 드라이브를 연결해 로그인 1회로 접속되는지 확인한다.
+
+---
+
 ### 📌 실행 로드맵 및 사용 가이드 안내
 * 상세 실행 로드맵: **[roadmap.md](roadmap.md)**
 * 팀원용 1분 사용 가이드: **[team_user_guide.md](team_user_guide.md)**
